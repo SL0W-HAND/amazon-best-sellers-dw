@@ -1,0 +1,16 @@
+# Ignore credentials
+credentials.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+
+# Virtual environment
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
