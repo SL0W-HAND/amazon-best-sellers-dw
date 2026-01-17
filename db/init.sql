@@ -28,6 +28,8 @@ CREATE TABLE core.product_rank_history (
     asin VARCHAR(20) NOT NULL REFERENCES core.products(asin),
     category TEXT NOT NULL,
     rank_position INT NOT NULL,
+    has_price_this_date BOOLEAN NOT NULL DEFAULT FALSE,
+    price_on_date NUMERIC(10,2) DEFAULT NULL,
     scraped_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -57,19 +59,18 @@ CREATE TABLE raw.product_details (
 CREATE TABLE raw.reviews (
     id SERIAL PRIMARY KEY,
     asin VARCHAR(20) NOT NULL,
+    review_id VARCHAR(50) NOT NULL,
     rating INT CHECK (rating BETWEEN 1 AND 5),
     review_date DATE,
-    country VARCHAR(50),
-    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    country VARCHAR(100),
+    title TEXT,
+    review_text TEXT,
+    verified_purchase BOOLEAN DEFAULT FALSE,
+    helpful_count TEXT,
+    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT reviews_asin_review_id_unique UNIQUE (asin, review_id)
 );
 
-CREATE TABLE raw.price_history_images (
-    id SERIAL PRIMARY KEY,
-    asin VARCHAR(20) NOT NULL,
-    image_path TEXT NOT NULL,
-    source TEXT,
-    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
 
 -- Partitioned table for price history (by month)
 CREATE TABLE raw.price_history (
@@ -79,25 +80,41 @@ CREATE TABLE raw.price_history (
     price NUMERIC(10,2),
     source TEXT,
     inserted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id, price_date)
+    PRIMARY KEY (id, price_date),
+    CONSTRAINT price_history_asin_date_unique UNIQUE (asin, price_date)
 ) PARTITION BY RANGE (price_date);
 
--- Create partitions for 2025-2026 (add more as needed)
-CREATE TABLE raw.price_history_2025_h1 PARTITION OF raw.price_history
-    FOR VALUES FROM ('2025-01-01') TO ('2025-07-01');
-CREATE TABLE raw.price_history_2025_h2 PARTITION OF raw.price_history
-    FOR VALUES FROM ('2025-07-01') TO ('2026-01-01');
-CREATE TABLE raw.price_history_2026_h1 PARTITION OF raw.price_history
-    FOR VALUES FROM ('2026-01-01') TO ('2026-07-01');
-CREATE TABLE raw.price_history_2026_h2 PARTITION OF raw.price_history
-    FOR VALUES FROM ('2026-07-01') TO ('2027-01-01');
+-- Price history partitions for 2026
+CREATE TABLE raw.price_history_2026_01 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+CREATE TABLE raw.price_history_2026_02 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
+CREATE TABLE raw.price_history_2026_03 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-03-01') TO ('2026-04-01');
+CREATE TABLE raw.price_history_2026_04 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-04-01') TO ('2026-05-01');
+CREATE TABLE raw.price_history_2026_05 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+CREATE TABLE raw.price_history_2026_06 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+CREATE TABLE raw.price_history_2026_07 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-07-01') TO ('2026-08-01');
+CREATE TABLE raw.price_history_2026_08 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-08-01') TO ('2026-09-01');
+CREATE TABLE raw.price_history_2026_09 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-09-01') TO ('2026-10-01');
+CREATE TABLE raw.price_history_2026_10 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-10-01') TO ('2026-11-01');
+CREATE TABLE raw.price_history_2026_11 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-11-01') TO ('2026-12-01');
+CREATE TABLE raw.price_history_2026_12 PARTITION OF raw.price_history
+    FOR VALUES FROM ('2026-12-01') TO ('2027-01-01');
 
--- Default partition for dates outside defined ranges
-CREATE TABLE raw.price_history_default PARTITION OF raw.price_history DEFAULT;
 
 CREATE INDEX idx_best_sellers_asin ON raw.best_sellers (asin);
 CREATE INDEX idx_product_details_asin ON raw.product_details (asin);
 CREATE INDEX idx_reviews_asin ON raw.reviews (asin);
+CREATE INDEX idx_reviews_asin_review_id ON raw.reviews (asin, review_id);
 CREATE INDEX idx_price_history_asin ON raw.price_history (asin);
 CREATE INDEX idx_product_rank_history_asin ON core.product_rank_history (asin);
 CREATE INDEX idx_product_rank_history_category ON core.product_rank_history (category);

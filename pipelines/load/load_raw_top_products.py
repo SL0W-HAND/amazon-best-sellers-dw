@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from scraping.best_sells_scraping import (
+from extract.best_sells_scraping import (
     AmazonBestSellersScraper,
     ScraperConfig,
     ScrapingResult,
@@ -40,8 +40,8 @@ class DatabaseConfig:
         if env_path:
             load_dotenv(env_path)
         else:
-            # Default to credential.env in the same directory
-            default_env = Path(__file__).parent / "credential.env"
+            # Default to credential.env in the project root directory
+            default_env = Path(__file__).parent.parent.parent / "credential.env"
             load_dotenv(default_env)
         
         self.host = os.getenv("POSTGRES_HOST", "localhost")
@@ -216,10 +216,14 @@ class BestSellersETL:
         self,
         scraper_config: Optional[ScraperConfig] = None,
         db_config: Optional[DatabaseConfig] = None,
-        category: str = "electronics"
+        amazon_url: str = "/Best-Sellers-Electronics/zgbs/electronics/",
+        category: str = "electronics",
     ):
         self.scraper_config = scraper_config or ScraperConfig()
+        # Set the start_path from amazon_url
+        self.scraper_config.start_path = amazon_url
         self.db_config = db_config or DatabaseConfig()
+        self.amazon_url = amazon_url
         self.category = category
         self.loader = BestSellersLoader(self.db_config)
     
@@ -233,6 +237,7 @@ class BestSellersETL:
         start_time = datetime.now()
         stats = {
             "started_at": start_time,
+            "amazon_url": self.amazon_url,
             "category": self.category,
             "products_scraped": 0,
             "products_loaded": 0,
@@ -349,7 +354,8 @@ def main():
     etl = BestSellersETL(
         scraper_config=scraper_config,
         db_config=db_config,
-        category="electronics"  # Category being scraped
+        amazon_url="/Best-Sellers-Electronics/zgbs/electronics/",
+        category="electronics",
     )
     
     try:

@@ -3,13 +3,13 @@ services:
     image: postgres:16-alpine
     container_name: amazon_dw
     env_file:
-      - ./etl/credential.env
+      - ./credential.env
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./etl/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
-      - ./etl/trigger.sql:/docker-entrypoint-initdb.d/02_trigger.sql:ro
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./db/trigger.sql:/docker-entrypoint-initdb.d/02_trigger.sql:ro
 
 volumes:
   pgdata:
