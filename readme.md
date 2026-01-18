@@ -1,409 +1,549 @@
-# Amazon Data Scraping Pipeline
+# Amazon Best Sellers Data Warehouse  
+**Production-Style ETL Pipeline | Python, Selenium, PostgreSQL, SQL Triggers, Docker**
 
-A complete ETL pipeline for scraping Amazon Best Sellers data and storing it in PostgreSQL. The system extracts product information, details, reviews, and tracks price/rank history over time.
+A production-oriented data warehouse pipeline that scrapes Amazon Best Sellers data, applies database-level business logic using PostgreSQL triggers, and stores historical product ranking and price snapshots for analytical use.
 
-## 📁 Project Structure
+## Why this project?
+- Monitor market trends
+- Analyze historical price and ranking dynamics
+- Prepare high-quality datasets for analytics, BI, and forecasting
 
-```
-data_scraping/
-├── credential.env              # Database credentials (do not commit!)
-├── docker-compose.yml          # PostgreSQL container configuration
-├── readme.md                   # This file
-├── db/
-│   ├── init.sql               # Database schema (tables and indexes)
-│   └── trigger.sql            # Trigger for automatic data processing
-├── pipelines/
-│   ├── run_weekly_etl.py      # 🆕 Master orchestrator for weekly runs
-│   ├── extract/
-│   │   ├── best_sells_scraping.py   # Best sellers list scraper
-│   │   └── page_scraping.py         # Individual product page scraper
-│   └── load/
-│       ├── load_raw_top_products.py  # ETL: Best sellers → PostgreSQL
-│       └── load_products_details.py  # ETL: Product details → PostgreSQL
-└── scraping/                   # Additional scraping utilities
-```
-
-## ✨ Key Features
-
-- **Weekly Top 100 Tracking**: Scrape top 100 best sellers per category
-- **Price History**: Track price changes over time for each product
-- **Incremental Reviews**: Only adds NEW reviews (doesn't re-insert existing ones)
-- **1-Day Minimum Interval**: Prevents over-scraping by enforcing minimum update intervals
-- **Rank History**: Daily snapshots of product rankings
-- **Multiple Categories**: Support for 10+ Amazon categories
-
-## 🗄️ Database Schema
-
-### Schemas
-- **`raw`**: Raw scraped data (staging area)
-- **`core`**: Cleaned and deduplicated data
-
-### Core Tables
-
-| Table | Description |
-|-------|-------------|
-| `core.products` | Master product catalog with scraping status flags |
-| `core.product_rank_history` | Daily ranking history per category |
-
-### Raw Tables
-
-| Table | Description |
-|-------|-------------|
-| `raw.best_sellers` | Raw best sellers scrape data |
-| `raw.product_details` | Product metadata (brand, price, ratings) |
-| `raw.reviews` | Customer reviews with ratings |
-| `raw.price_history` | Historical price tracking (partitioned by month) |
-
-### Data Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              ETL PIPELINE                                    │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│   load_raw_top_products.py                                                  │
-│   ========================                                                  │
-│   Amazon Best Sellers Page                                                  │
-│           │                                                                  │
-│           ▼                                                                  │
-│   ┌─────────────────┐    TRIGGER    ┌────────────────────────────────────┐ │
-│   │ raw.best_sellers├──────────────▶│ core.products                      │ │
-│   └─────────────────┘               │ core.product_rank_history          │ │
-│                                     └────────────────────────────────────┘ │
-│                                                                              │
-│   load_products_details.py                                                  │
-│   ========================                                                  │
-│   Amazon Product Pages                                                      │
-│           │                                                                  │
-│           ▼                                                                  │
-│   ┌───────────────────┐   ┌─────────────┐                                  │
-│   │ raw.product_details│   │ raw.reviews │                                  │
-│   └───────────────────┘   └─────────────┘                                  │
-│           │                      │                                          │
-│           └──────────────────────┘                                          │
-│                     │                                                        │
-│                     ▼                                                        │
-│           ┌─────────────────┐                                               │
-│           │ core.products    │ (updates has_details flag)                   │
-│           └─────────────────┘                                               │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-## 🚀 Quick Start
-
-### Prerequisites
-
-- Docker & Docker Compose
-- Python 3.10+
-- Chrome browser (for Selenium)
-- ChromeDriver
-
-### 1. Configure Credentials
-
-Edit `credential.env` with your desired database credentials:
-
-```env
-POSTGRES_USER=admin
-POSTGRES_PASSWORD=admin123
-POSTGRES_DB=amazon_scraping_db
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-```
-
-### 2. Start the Database
-
-```bash
-# Start PostgreSQL container
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop the container
-docker-compose down
-
-# Stop and remove all data (fresh start)
-docker-compose down -v
-```
-
-### 3. Install Python Dependencies
-
-```bash
-pip install selenium beautifulsoup4 psycopg2-binary python-dotenv
-```
-
-### 4. Run the ETL Pipelines
-
-#### 🆕 Weekly Full Pipeline (Recommended)
-
-The easiest way to run the complete pipeline:
-
-```bash
-cd pipelines
-
-# Run weekly ETL for electronics category
-python run_weekly_etl.py --category electronics
-
-# Show browser window for debugging
-python run_weekly_etl.py --category electronics --visible
-
-# Only scrape best sellers (skip product details)
-python run_weekly_etl.py --category toys --skip-details
-
-# List available categories
-python run_weekly_etl.py --list-categories
-```
-
-**Available Categories:**
-| Key | Name |
-|-----|------|
-| `electronics` | Electronics |
-| `computers` | Computers & Accessories |
-| `home` | Home & Kitchen |
-| `toys` | Toys & Games |
-| `books` | Books |
-| `fashion` | Clothing, Shoes & Jewelry |
-| `sports` | Sports & Outdoors |
-| `beauty` | Beauty & Personal Care |
-| `health` | Health & Household |
-| `automotive` | Automotive |
-
-#### Individual ETL Scripts
-
-##### Scrape Best Sellers Only
-
-```bash
-cd pipelines/load
-python load_raw_top_products.py
-```
-
-This will:
-1. Scrape Amazon Best Sellers page (electronics category by default)
-2. Insert products into `raw.best_sellers`
-3. Trigger automatically populates `core.products` and `core.product_rank_history`
-
-##### Scrape Product Details Only
-
-```bash
-cd pipelines/load
-
-# Test mode (single product)
-python load_products_details.py --test
-
-# Batch mode (multiple products)
-python load_products_details.py --limit 10 --days 1
-
-# Process products from latest top 100 scrape
-python load_products_details.py --latest
-
-# Show browser window (debugging)
-python load_products_details.py --visible --test
-```
-
-Options:
-- `--test`: Process only one product (for testing)
-- `--latest`: Process products from the most recent best sellers scrape
-- `--limit N`: Maximum products to process (default: 10)
-- `--days N`: Rescrape products older than N days (default: 1)
-- `--visible`: Show browser window instead of headless mode
-
-## ⏰ Scheduling Weekly Runs
-
-### Linux/Mac (cron)
-
-```bash
-# Run every Sunday at 2 AM
-0 2 * * 0 cd /path/to/data_scraping && python pipelines/run_weekly_etl.py --category electronics >> /var/log/amazon_etl.log 2>&1
-```
-
-### Windows Task Scheduler
-
-1. Open Task Scheduler
-2. Create Basic Task
-3. Set trigger: Weekly, Sunday, 2:00 AM
-4. Action: Start a program
-5. Program: `python`
-6. Arguments: `pipelines/run_weekly_etl.py --category electronics`
-7. Start in: `C:\path\to\data_scraping`
-
-## 🔧 Configuration
-
-### Scraper Settings
-
-Both scrapers can be configured via their respective config classes:
-
-```python
-# Best Sellers Scraper
-ScraperConfig(
-    headless=True,              # Run without browser window
-    max_no_change_attempts=3,   # Stop scrolling after 3 unchanged attempts
-    scroll_pause_seconds=0.5,   # Pause between scrolls
-)
-
-# Product Page Scraper  
-ProductScraperConfig(
-    headless=True,
-    page_load_wait_seconds=1.0,
-    scroll_step_pixels=600,
-    max_no_change_attempts=4,
-)
-```
-
-### Changing Categories
-
-To scrape a different category, modify `load_raw_top_products.py`:
-
-```python
-etl = BestSellersETL(
-    amazon_url="/Best-Sellers-Books/zgbs/books/",
-    category="books",
-)
-```
-
-## 📊 Database Queries
-
-### Check Scraping Progress
-
-```sql
--- Products without details
-SELECT COUNT(*) FROM core.products WHERE has_details = FALSE;
-
--- Products updated today
-SELECT COUNT(*) FROM core.products 
-WHERE last_details_scrape::DATE = CURRENT_DATE;
-
--- Recent scrapes
-SELECT category, COUNT(*), MAX(scraped_at) 
-FROM raw.best_sellers 
-GROUP BY category;
-
--- Ranking history for a product
-SELECT * FROM core.product_rank_history 
-WHERE asin = 'B09XXXXX' 
-ORDER BY scraped_at DESC;
-```
-
-### Price History Analysis
-
-```sql
--- Price history for a product
-SELECT asin, price_date, price 
-FROM raw.price_history 
-WHERE asin = 'B09XXXXX'
-ORDER BY price_date DESC;
-
--- Products with price drops in the last week
-SELECT DISTINCT ph1.asin, ph1.price as current_price, ph2.price as previous_price,
-       (ph2.price - ph1.price) as price_drop
-FROM raw.price_history ph1
-JOIN raw.price_history ph2 ON ph1.asin = ph2.asin
-WHERE ph1.price_date = CURRENT_DATE
-  AND ph2.price_date = CURRENT_DATE - INTERVAL '7 days'
-  AND ph1.price < ph2.price
-ORDER BY price_drop DESC;
-
--- Average price by product over time
-SELECT asin, AVG(price) as avg_price, MIN(price) as min_price, MAX(price) as max_price
-FROM raw.price_history
-GROUP BY asin;
-```
-
-### Product Details
-
-```sql
--- Products with details
-SELECT p.asin, p.product_name, d.price, d.avg_rating, d.total_reviews
-FROM core.products p
-JOIN raw.product_details d ON p.asin = d.asin
-WHERE p.has_details = TRUE;
-
--- Reviews for a product
-SELECT * FROM raw.reviews WHERE asin = 'B09XXXXX';
-
--- Review count by product
-SELECT asin, COUNT(*) as review_count 
-FROM raw.reviews 
-GROUP BY asin 
-ORDER BY review_count DESC;
-
--- New reviews added today
-SELECT * FROM raw.reviews 
-WHERE scraped_at::DATE = CURRENT_DATE;
-```
-
-## 🔄 Trigger Behavior
-
-The `trg_best_sellers_to_core` trigger automatically:
-
-1. **Upserts products** into `core.products` when inserting into `raw.best_sellers`
-2. **Records rank history** in `core.product_rank_history` (once per day per product)
-3. **Links price data** if product details were scraped the same day
-
-This ensures:
-- No duplicate products in core tables
-- Daily ranking snapshots
-- Automatic price correlation with rankings
-
-## ⚠️ Important Notes
-
-1. **Rate Limiting**: Amazon may block frequent requests. The 1-day minimum interval helps prevent over-scraping.
-
-2. **Selenium Setup**: Ensure ChromeDriver version matches your Chrome browser version.
-
-3. **Data Retention**: The `raw.price_history` table is partitioned by month. Partitions for 2026 are pre-created. For future years, add new partitions:
-
-```sql
--- Example for 2027
-CREATE TABLE raw.price_history_2027_01 PARTITION OF raw.price_history
-    FOR VALUES FROM ('2027-01-01') TO ('2027-02-01');
-```
-
-4. **Credentials**: Never commit `credential.env` to version control. Add it to `.gitignore`.
-
-5. **Incremental Reviews**: The pipeline only inserts NEW reviews. Existing reviews (by `review_id`) are skipped, making re-runs efficient.
-
-6. **1-Day Enforcement**: Products already scraped today are automatically skipped. Use `--force` flag in the code if you need to override this.
-
-## 🔄 Pipeline Flow
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         WEEKLY ETL PIPELINE                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  Step 1: run_weekly_etl.py calls load_raw_top_products.py                  │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│   Amazon Best Sellers Page                                                   │
-│           │                                                                  │
-│           ▼                                                                  │
-│   ┌─────────────────┐    TRIGGER    ┌────────────────────────────────────┐  │
-│   │ raw.best_sellers├──────────────▶│ core.products                      │  │
-│   └─────────────────┘               │ core.product_rank_history          │  │
-│                                     └────────────────────────────────────┘  │
-│                                                                              │
-│  Step 2: run_weekly_etl.py calls load_products_details.py --latest         │
-│  ─────────────────────────────────────────────────────────────────────────  │
-│   For each product in latest top 100:                                       │
-│           │                                                                  │
-│           ├── Check if already updated today → Skip if yes                  │
-│           │                                                                  │
-│           ▼                                                                  │
-│   ┌───────────────────┐   ┌─────────────┐   ┌─────────────────┐            │
-│   │ raw.product_details│  │ raw.reviews │   │ raw.price_history│            │
-│   │ (latest snapshot)  │  │ (incremental)│   │ (daily prices)  │            │
-│   └───────────────────┘   └─────────────┘   └─────────────────┘            │
-│           │                      │                   │                       │
-│           └──────────────────────┴───────────────────┘                      │
-│                     │                                                        │
-│                     ▼                                                        │
-│           ┌─────────────────┐                                               │
-│           │ core.products    │ (updates has_details, last_details_scrape)   │
-│           └─────────────────┘                                               │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
 
 ## 📝 License
 
 This project is for educational purposes only. Ensure compliance with Amazon's Terms of Service.
+
+---
+
+## 📌 Executive Summary
+
+This project is an **early-stage data warehouse and ETL pipeline** designed to systematically collect, store, and track Amazon Best Sellers data over time.
+
+The current phase focuses on **reliable data acquisition, historical persistence, and data modeling**, laying a solid foundation for future analytics and reporting.
+
+At this stage, the system:
+- Scrapes the **Top 100 best-selling products per category**
+- Captures **daily ranking snapshots**
+- Collects **price, ratings, and review metadata**
+- Stores data using a **raw → core data warehouse architecture**
+- Enforces **data consistency and idempotency via PostgreSQL triggers**
+
+Rather than producing immediate insights, the project emphasizes **production-oriented data engineering principles**, ensuring that future analyses are based on clean, historical, and trustworthy data.
+
+Planned future phases include:
+- Apache Airflow orchestration
+- Automated data quality checks
+- Analytical dashboards
+- Trend and price evolution analysis
+
+
+
+---
+
+## 🚀 Project Overview
+
+This repository contains a complete ETL pipeline for scraping Amazon Best Sellers data and storing it in a PostgreSQL data warehouse.
+
+The pipeline is capable of:
+- Extracting Top 100 products per category
+- Tracking ranking and price changes over time
+- Collecting reviews and rating distributions
+- Maintaining historical snapshots for longitudinal analysis
+
+---
+
+## 🧠 Key Design Principles
+
+- **Raw vs Core separation** for clean data modeling
+- **Idempotent pipelines** (safe to re-run)
+- **Database-driven business logic**
+- **Historical tracking by design**
+- **Anti-blocking scraping strategy**
+- **Production-ready structure**
+
+---
+
+### 🔮 Roadmap
+
+- Full orchestration with Apache Airflow
+- Incremental loads with scheduling and retries
+- BI dashboard layer
+- Time-series forecasting models on price and rank dynamics
+
+## 🗄️ Data Warehouse Design
+
+### RAW Schema (Landing Zone)
+
+Stores unprocessed, append-only scraped data.
+
+Tables:
+- `raw.best_sellers`
+- `raw.product_details`
+- `raw.reviews`
+- `raw.price_history` (partitioned by month)
+
+Purpose:
+- Preserve original data
+- Enable reprocessing
+- Prevent data loss
+
+---
+
+### CORE Schema (Curated Layer)
+
+Stores cleaned, deduplicated, analytics-ready data.
+
+Tables:
+- `core.products`  
+  Master product table (one row per ASIN)
+
+- `core.product_rank_history`  
+  Daily snapshots of:
+  - rank position
+  - category
+  - price (if available)
+
+---
+
+## 🔁 Business Logic via PostgreSQL Triggers
+
+Critical business rules are enforced at the database level:
+
+- Automatic upsert of products
+- One rank snapshot per product per day
+- Price updates linked to ranking snapshots
+- Duplicate prevention across runs
+
+This guarantees:
+- Consistent historical data
+- Safe pipeline re-execution
+- Simpler and more reliable ETL code
+
+---
+
+
+# Data Pipeline Documentation
+
+## Overview
+
+This ETL (Extract, Transform, Load) pipeline scrapes Amazon Best Sellers data and product details, storing them in a PostgreSQL database with both raw and core schemas for data processing.
+
+---
+
+## Architecture Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           WEEKLY ETL PIPELINE                                   │
+│                        (run_weekly_etl.py)                                      │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+        ┌───────────────────────────────────────────────────────────┐
+        │                    STEP 1: BEST SELLERS                   │
+        │              Extract Top 100 Products                     │
+        └───────────────────────────────────────────────────────────┘
+                                    │
+            ┌───────────────────────┴───────────────────────┐
+            ▼                                               ▼
+┌─────────────────────────┐                     ┌─────────────────────────┐
+│   best_sells_scraping   │                     │  load_raw_top_products  │
+│        (EXTRACT)        │───────────────────▶ │        (LOAD)           │
+│                         │    Products[]       │                         │
+│  • Selenium WebDriver   │                     │  • Insert raw.best_     │
+│  • Scroll pagination    │                     │    sellers              │
+│  • Parse HTML           │                     │  • Trigger updates      │
+└─────────────────────────┘                     │    core.products        │
+                                                └─────────────────────────┘
+                                                           │
+                                                           │ TRIGGER
+                                                           ▼
+                                               ┌─────────────────────────┐
+                                               │  trg_best_sellers_to_   │
+                                               │  core                   │
+                                               │  • Upsert core.products │
+                                               │  • Insert rank_history  │
+                                               └─────────────────────────┘
+                                    │
+                                    ▼
+        ┌───────────────────────────────────────────────────────────┐
+        │                  STEP 2: PRODUCT DETAILS                  │
+        │           Scrape Price, Reviews, Ratings                  │
+        └───────────────────────────────────────────────────────────┘
+                                    │
+            ┌───────────────────────┴───────────────────────┐
+            ▼                                               ▼
+┌─────────────────────────┐                    ┌─────────────────────────┐
+│     page_scraping       │                    │  load_products_details  │
+│       (EXTRACT)         │───────────────────▶│        (LOAD)           │
+│                         │  ProductDetails    │                         │
+│  • Price extraction     │                    │  • raw.product_details  │
+│  • Rating & reviews     │                    │  • raw.price_history    │
+│  • Star histogram       │                    │  • raw.reviews          │
+└─────────────────────────┘                    │  • Update core.products │
+                                               └─────────────────────────┘
+                                                           │
+                                                           │ TRIGGER
+                                                           ▼
+                                               ┌─────────────────────────┐
+                                               │  trg_product_details_   │
+                                               │  update_price           │
+                                               │  • Update rank_history  │
+                                               │    with price_on_date   │
+                                               └─────────────────────────┘
+```
+
+---
+
+## Database Schema Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              RAW SCHEMA (Landing Zone)                          │
+│                        Stores unprocessed scraped data                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐  │
+│  │  raw.best_sellers   │    │ raw.product_details │    │    raw.reviews      │  │
+│  ├─────────────────────┤    ├─────────────────────┤    ├─────────────────────┤  │
+│  │ • asin              │    │ • asin              │    │ • asin              │  │
+│  │ • category          │    │ • brand             │    │ • review_id         │  │
+│  │ • rank_position     │    │ • price             │    │ • rating (1-5)      │  │
+│  │ • product_name      │    │ • avg_rating        │    │ • review_text       │  │
+│  │ • product_url       │    │ • total_reviews     │    │ • verified_purchase │  │
+│  │ • scraped_at        │    │ • rating_distrib    │    │ • review_date       │  │
+│  └──────────┬──────────┘    └──────────┬──────────┘    └─────────────────────┘  │
+│             │                          │                                        │
+│             │ TRIGGER                  │ TRIGGER                                │
+│             ▼                          ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │                     raw.price_history (Partitioned by Month)            │    │
+│  │         Stores daily price snapshots for historical analysis            │    │
+│  └─────────────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        │ Triggers
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            CORE SCHEMA (Curated Data)                           │
+│                      Cleaned, deduplicated, enriched data                       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌──────────────────────────────┐       ┌──────────────────────────────────┐    │
+│  │       core.products          │       │   core.product_rank_history      │    │
+│  ├──────────────────────────────┤       ├──────────────────────────────────┤    │
+│  │ • asin (PK)                  │◄──────│ • asin (FK)                      │    │
+│  │ • product_name               │       │ • category                       │    │
+│  │ • product_url                │       │ • rank_position                  │    │
+│  │ • category                   │       │ • has_price_this_date            │    │
+│  │ • has_details                │       │ • price_on_date                  │    │
+│  │ • has_price_history          │       │ • scraped_at                     │    │
+│  │ • last_details_scrape        │       └──────────────────────────────────┘    │
+│  │ • last_price_scrape          │                                               │
+│  └──────────────────────────────┘                                               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Pipeline Conditions & Business Rules
+
+### 1. Best Sellers Scraping Conditions
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              BEST SELLERS SCRAPING CONDITIONS                   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────┐
+              │   Is category valid?          │
+              └───────────────────────────────┘
+                     │              │
+                    YES             NO ──────▶ ❌ Raise ValueError
+                     │
+                     ▼
+              ┌───────────────────────────────┐
+              │   Scrape all 2 pages          │
+              │   (50 products per page)      │
+              └───────────────────────────────┘
+                     │
+                     ▼
+              ┌───────────────────────────────┐
+              │   For each product:           │
+              │   • Extract ASIN              │
+              │   • Extract name              │
+              │   • Extract URL               │
+              │   • Extract rank (1-100)      │
+              └───────────────────────────────┘
+                     │
+                     ▼
+              ┌───────────────────────────────┐
+              │   Insert into raw.best_sellers│
+              │   ───────────────────────     │
+              │   TRIGGER FIRES:              │
+              │   • Upsert core.products      │
+              │   • Check if new product      │
+              │   • Check if new day          │
+              │   • Insert rank_history       │
+              └───────────────────────────────┘
+```
+
+### 2. Rank History Insert Conditions (Trigger Logic)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│        TRIGGER: fn_upsert_product_and_rank()                    │
+│        Fires on: INSERT INTO raw.best_sellers                   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────┐
+              │   Is product NEW?             │
+              │   (not in core.products)      │
+              └───────────────────────────────┘
+                     │              │
+                    YES            NO
+                     │              │
+                     ▼              ▼
+         ┌─────────────────┐  ┌─────────────────────────────┐
+         │ INSERT rank     │  │ Check last rank_history date│
+         │ history record  │  └─────────────────────────────┘
+         └─────────────────┘            │
+                                        ▼
+                          ┌───────────────────────────────┐
+                          │ Last rank date = TODAY?       │
+                          └───────────────────────────────┘
+                                │              │
+                               YES            NO
+                                │              │
+                                ▼              ▼
+                    ┌───────────────┐   ┌─────────────────┐
+                    │   SKIP        │   │ INSERT rank     │
+                    │   (already    │   │ history record  │
+                    │   recorded)   │   │ for today       │
+                    └───────────────┘   └─────────────────┘
+```
+
+### 3. Product Details Scraping Conditions
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              PRODUCT DETAILS SCRAPING CONDITIONS                │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────┐
+              │   Get products needing details│
+              │   ORDER BY priority:          │
+              │   1. has_details = FALSE      │
+              │   2. last_details_scrape NULL │
+              │   3. Older than threshold days│
+              └───────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────┐
+              │   For each product ASIN:      │
+              └───────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────┐
+              │   Was updated TODAY?          │
+              │   (last_details_scrape::DATE  │
+              │    = CURRENT_DATE)            │
+              └───────────────────────────────┘
+                     │              │
+                    YES            NO
+                     │              │
+                     ▼              ▼
+         ┌─────────────────┐   ┌─────────────────┐
+         │   SKIP          │   │   SCRAPE        │
+         │   (already      │   │   product page  │
+         │   done today)   │   └─────────────────┘
+         └─────────────────┘            │
+                                        ▼
+                          ┌───────────────────────────────┐
+                          │   Validate scraped data       │
+                          │   (has price OR rating?)      │
+                          └───────────────────────────────┘
+                                │              │
+                              VALID         INVALID
+                                │              │
+                                ▼              ▼
+                    ┌───────────────┐   ┌─────────────────┐
+                    │  Save to DB:  │   │  Mark as        │
+                    │  • details    │   │  server_error   │
+                    │  • price_hist │   │  or no_data     │
+                    │  • reviews    │   └─────────────────┘
+                    └───────────────┘
+```
+
+### 4. Price Update Flow (via Trigger)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│        TRIGGER: fn_update_rank_history_price()                  │
+│        Fires on: INSERT INTO raw.product_details                │
+│        Condition: NEW.price IS NOT NULL                         │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────┐
+              │   Find matching rank_history  │
+              │   WHERE:                      │
+              │   • asin = NEW.asin           │
+              │   • scraped_at::DATE =        │
+              │     NEW.scraped_at::DATE      │
+              │   • has_price_this_date=FALSE │
+              └───────────────────────────────┘
+                              │
+                              ▼
+              ┌───────────────────────────────┐
+              │   UPDATE rank_history:        │
+              │   • has_price_this_date=TRUE  │
+              │   • price_on_date = NEW.price │
+              └───────────────────────────────┘
+```
+
+---
+
+## Delay Configuration (Anti-Blocking)
+
+The pipeline implements intelligent delays to avoid server blocks:
+
+| Scenario               | Min Delay | Max Delay | Purpose                 |
+|------------------------|-----------|-----------|-------------------------|
+| Success                | 3.0s      | 8.0s      | Normal between requests |
+| Skip (already updated) | 0.5s      | 1.5s      | Quick skip, minimal wait|
+| Server Error (blocked) | 30.0s     | 60.0s     | Long backoff to recover |
+| Network Error          | 10.0s     | 20.0s     | Medium wait for network |
+| Other Errors           | 5.0s      | 10.0s     | General error recovery  |
+---
+
+## Scrape Result Status Types
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SCRAPE STATUS TYPES                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ✅ SUCCESS        Data scraped and saved successfully          │
+│                                                                 │
+│  ⏭️  SKIPPED        Product already updated today               │
+│                                                                 │
+│  📭 NO_DATA        Scraping returned no valid data              │
+│                                                                 │
+│  🚫 SERVER_ERROR   Server denied or blocked request             │
+│                                                                 │
+│  🌐 NETWORK_ERROR  Connection or timeout issues                 │
+│                                                                 │
+│  ⚠️  PARSE_ERROR    Could not parse page HTML                   │
+│                                                                 │
+│  ⛔ INTERRUPTED    User pressed Ctrl+C                          │
+│                                                                 │
+│  ❓ UNKNOWN_ERROR  Other unexpected errors                       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Execution Flow
+
+### Weekly ETL (Recommended)
+
+```bash
+# Run complete pipeline for a category
+python run_weekly_etl.py --category electronics
+
+# Run with visible browser (debugging)
+python run_weekly_etl.py --category electronics --visible
+
+# Only scrape best sellers, skip details
+python run_weekly_etl.py --category electronics --skip-details
+```
+
+### Manual Execution
+
+```bash
+# Step 1 only: Scrape best sellers
+python pipelines/load/load_raw_top_products.py
+
+# Step 2 only: Scrape product details
+python pipelines/load/load_products_details.py --limit 10
+
+# Test mode (single product)
+python pipelines/load/load_products_details.py --test
+```
+
+---
+
+## Available Categories
+
+| Key           | Category Name           |
+|---------------|-------------------------|
+| `electronics` | Electronics             |
+| `computers`   | Computers & Accessories |
+| `home`        | Home & Kitchen          |
+| `toys`        | Toys & Games            |
+| `books`       | Books                   |
+| `sports`      | Sports & Outdoors       |
+| `beauty`      | Beauty & Personal Care  |
+| `health`      | Health & Household      |
+| `automotive`  | Automotive              |
+
+---
+
+## Graceful Shutdown
+
+The pipeline supports graceful shutdown via `Ctrl+C`:
+
+1. First `Ctrl+C` → Finish current product, then stop
+2. Second `Ctrl+C` → Force quit immediately
+
+This ensures no partial data is written to the database.
+
+---
+
+## Data Flow Summary
+
+```
+                     AMAZON WEBSITE
+                           │
+                           │ Selenium WebDriver
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│                     EXTRACT LAYER                        │
+│  ┌─────────────────────┐    ┌─────────────────────┐      │
+│  │ best_sells_scraping │    │   page_scraping     │      │
+│  │ (Top 100 products)  │    │ (Details & Reviews) │      │
+│  └─────────────────────┘    └─────────────────────┘      │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           │ Python Objects
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│                      LOAD LAYER                          │
+│  ┌─────────────────────┐    ┌─────────────────────┐      │
+│  │load_raw_top_products│    │load_products_details│      │
+│  └─────────────────────┘    └─────────────────────┘      │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           │ SQL INSERT
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│                    RAW SCHEMA                            │
+│  • raw.best_sellers                                      │
+│  • raw.product_details                                   │
+│  • raw.reviews                                           │
+│  • raw.price_history (partitioned)                       │
+└──────────────────────────────────────────────────────────┘
+                           │
+                           │ Triggers
+                           ▼
+┌──────────────────────────────────────────────────────────┐
+│                    CORE SCHEMA                           │
+│  • core.products (master product list)                   │
+│  • core.product_rank_history (daily rankings with price) │
+└──────────────────────────────────────────────────────────┘
+```

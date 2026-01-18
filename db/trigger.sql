@@ -8,9 +8,11 @@ DECLARE
     v_current_date DATE;
     v_is_new_product BOOLEAN;
     v_should_insert_rank BOOLEAN := FALSE;
+    v_should_update_product BOOLEAN := FALSE;
     v_price_this_day NUMERIC(10,2) := NULL;
     v_has_price BOOLEAN := FALSE;
     v_scrape_timestamp TIMESTAMP;
+    v_last_product_update_date DATE;
 BEGIN
     -- Validate required fields
     IF NEW.asin IS NULL OR NEW.asin = '' THEN
@@ -27,34 +29,45 @@ BEGIN
     -- Get current date
     v_current_date := v_scrape_timestamp::DATE;
 
-    -- Check if product exists
-    SELECT NOT EXISTS (
-        SELECT 1 FROM core.products WHERE asin = NEW.asin
-    ) INTO v_is_new_product;
+    -- Check if product exists and get last update date
+    SELECT 
+        NOT EXISTS (SELECT 1 FROM core.products WHERE asin = NEW.asin),
+        (SELECT updated_at::DATE FROM core.products WHERE asin = NEW.asin)
+    INTO v_is_new_product, v_last_product_update_date;
 
-    -- 1️⃣ Upsert en core.products
-    INSERT INTO core.products (
-        asin,
-        product_name,
-        product_url,
-        category,
-        created_at,
-        updated_at
-    )
-    VALUES (
-        NEW.asin,
-        NEW.product_name,
-        COALESCE(NEW.product_url, ''),
-        COALESCE(NEW.category, 'unknown'),
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
-    )
-    ON CONFLICT (asin) DO UPDATE
-    SET
-        product_name = EXCLUDED.product_name,
-        product_url = EXCLUDED.product_url,
-        category = EXCLUDED.category,
-        updated_at = CURRENT_TIMESTAMP;
+    -- Determine if we should update the product
+    IF v_is_new_product THEN
+        v_should_update_product := TRUE;
+    ELSIF v_last_product_update_date IS NULL OR v_last_product_update_date < v_current_date THEN
+        v_should_update_product := TRUE;
+    END IF;
+
+    -- 1️⃣ Upsert en core.products only if conditions are met
+    IF v_should_update_product THEN
+        INSERT INTO core.products (
+            asin,
+            product_name,
+            product_url,
+            category,
+            created_at,
+            updated_at
+        )
+        VALUES (
+            NEW.asin,
+            NEW.product_name,
+            COALESCE(NEW.product_url, ''),
+            COALESCE(NEW.category, 'unknown'),
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (asin) DO UPDATE
+        SET
+            product_name = EXCLUDED.product_name,
+            product_url = EXCLUDED.product_url,
+            category = EXCLUDED.category,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE core.products.updated_at::DATE < EXCLUDED.updated_at::DATE;
+    END IF;
 
     -- 2️⃣ Determine if we should insert rank history
     IF v_is_new_product THEN
@@ -70,7 +83,7 @@ BEGIN
         LIMIT 1;
         
         -- Insert only if different day or no previous rank history
-        IF v_last_rank_date IS NULL OR v_last_rank_date != v_current_date THEN
+        IF v_last_rank_date IS NULL OR v_last_rank_date < v_current_date THEN
             v_should_insert_rank := TRUE;
         END IF;
     END IF;

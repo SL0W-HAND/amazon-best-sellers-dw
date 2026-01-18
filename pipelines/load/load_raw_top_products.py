@@ -360,9 +360,10 @@ def main():
     
     try:
         stats = etl.run()
-        
+    
         if stats["success"]:
             print("\n✅ ETL completado exitosamente")
+            print(f"   Productos scrapeados: {stats['products_scraped']}")
             sys.exit(0)
         else:
             print(f"\n❌ ETL fallido: {stats.get('error')}")
