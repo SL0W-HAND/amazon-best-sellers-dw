@@ -1,7 +1,16 @@
 from load.load_raw_top_products import BestSellersETL, ScraperConfig, DatabaseConfig
 
 urls = [
-    {'amazon_url': "/Best-Sellers-Electronics/zgbs/electronics/", 'category_name': "Electronics"},
+    {
+        'amazon_url': "/Best-Sellers-Amazon-Renewed/zgbs/amazon-renewed?language=en_US&currency=USD", 
+        'category_name': "best_sellers_amazon_renewed"
+    },
+    {
+        'amazon_url': "/Best-Sellers-Computers-Accessories/zgbs/pc/ref=zg_bs_nav_pc_0?language=en_US&currency=USD", 'category_name': "best_sellers_computers_accessories"  
+    }, 
+    {
+        'amazon_url': "/Best-Sellers-Electronics/zgbs/electronics/ref=zg_bs_nav_electronics_0?language=en_US&currency=USD", 'category_name': "best_sellers_electronics"
+    }
     # Puedes agregar más categorías aquí
 ]
 
