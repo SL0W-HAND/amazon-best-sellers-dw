@@ -51,7 +51,7 @@ This project is a **production-grade data warehouse and ETL pipeline** designed 
 
 The system successfully:
 - Scrapes the **Top 100 best-selling products per category**
-- Captures **daily ranking snapshots** with historical tracking
+- Captures **ranking snapshots** with historical tracking
 - Collects **price, ratings, and review metadata**
 - Stores data using a **raw → core data warehouse architecture**
 - Enforces **data consistency and idempotency via PostgreSQL triggers**
@@ -68,9 +68,7 @@ The system successfully:
 The project emphasizes **production-oriented data engineering principles**, ensuring analyses are based on clean, historical, and trustworthy data.
 
 Planned future phases include:
-- Apache Airflow orchestration for automated scheduling
 - Real-time data quality monitoring
-- Predictive modeling for ranking and price forecasting
 - Enhanced geographic and seasonal trend analysis
 
 
@@ -247,7 +245,6 @@ Interactive dashboards have been developed to enable real-time exploration of th
 - Interactive filtering by category, brand, and date range
 - Real-time ranking position tracking
 - Price evolution visualization
-- Review sentiment and rating breakdown
 - Top performers comparison
 
 ### Accessing the Full Analysis
@@ -288,14 +285,6 @@ Based on these findings, future analyses will focus on:
 
 ---
 
-### 🔮 Roadmap
-
-- Full orchestration with Apache Airflow
-- Incremental loads with scheduling and retries
-- BI dashboard layer (with Power BI visualizations)
-- Time-series forecasting models on price and rank dynamics
-- Advanced anomaly detection for price and ranking changes
-- Automated alert system for significant market shifts
 
 ## 🗄️ Data Warehouse Design
 
@@ -677,48 +666,7 @@ The pipeline implements intelligent delays to avoid server blocks:
 
 ---
 
-## Execution Flow
 
-### Weekly ETL (Recommended)
-
-```bash
-# Run complete pipeline for a category
-python run_weekly_etl.py --category electronics
-
-# Run with visible browser (debugging)
-python run_weekly_etl.py --category electronics --visible
-
-# Only scrape best sellers, skip details
-python run_weekly_etl.py --category electronics --skip-details
-```
-
-### Manual Execution
-
-```bash
-# Step 1 only: Scrape best sellers
-python pipelines/load/load_raw_top_products.py
-
-# Step 2 only: Scrape product details
-python pipelines/load/load_products_details.py --limit 10
-
-# Test mode (single product)
-python pipelines/load/load_products_details.py --test
-```
-
-
-
----
-
-## Graceful Shutdown
-
-The pipeline supports graceful shutdown via `Ctrl+C`:
-
-1. First `Ctrl+C` → Finish current product, then stop
-2. Second `Ctrl+C` → Force quit immediately
-
-This ensures no partial data is written to the database.
-
----
 
 ## Data Flow Summary
 
